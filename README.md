@@ -1,7 +1,7 @@
 # Hello World Example Based Project
 Starts a FreeRTOS task to print "Hello World"
 
-# Start RTOS platform 
+# Let's Start RTOS platform 
 middle in studying...
 
 # socket client
