@@ -41,82 +41,6 @@
 
 const char *TAG = "mainsession";
 
-EventGroupHandle_t wifi_connection_groupevt;
-
-static void tcp_client_task(void *arg)
-{
-    char rx_buffer[128];
-    char addr_str[128];
-
-	ESP_LOGI(TAG, "tcp_client_task started");
-		
-	while(1)
-	{
-		EventBits_t evtbit = xEventGroupGetBits(wifi_connection_groupevt);
-
-		if(evtbit>>0)
-		{
-			break;
-		}
-	
-		struct sockaddr_in destAddr;
-		destAddr.sin_addr.s_addr = inet_addr("192.168.0.28");
-	    destAddr.sin_family = AF_INET;
-	    destAddr.sin_port = htons(9009);
-		inet_ntoa_r(destAddr.sin_addr, addr_str, sizeof(addr_str) - 1);
-
-		int sock =	socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
-		if(sock < 0)
-		{
-			ESP_LOGE(TAG, "Unable to create socket: errno %d", errno);
-			goto quit;
-		}
-		
-		int err = connect(sock, (struct sockaddr *)&destAddr, sizeof(destAddr));
-	    if (err != 0) {
-	        ESP_LOGE(TAG, "Socket unable to connect: errno %d", errno);
-	        close(sock);
-			vTaskDelay(100 / portTICK_PERIOD_MS);
-			continue;
-	    }
-		
-		//ESP_LOGI(TAG, "Successfully connected");
-
-		
-		int len = recv(sock, rx_buffer, sizeof(rx_buffer) - 1, 0);
-		
-		if (len < 0) {
-			ESP_LOGE(TAG, "recv failed: errno %d", errno);
-			goto quit;
-		}
-
-		rx_buffer[len] = 0;
-		//ESP_LOGI(TAG, "recv - %s", rx_buffer);
-		
-		static const char *payload = "Message from ESP32 ";
-		
-	    err = send(sock, payload, strlen(payload), 0);
-	    if (err < 0) {
-	        ESP_LOGE(TAG, "Error occured during sending: errno %d", errno);
-			goto quit;
-	    }
-
-quit:
-
-	    if (sock != -1) {
-	        shutdown(sock, 0);
-	        close(sock);
-		
-			vTaskDelay(1000 / portTICK_PERIOD_MS);
-
-	    }
-	}
-
-	ESP_LOGI(TAG, "tcp_client_task terminated");
-
-    vTaskDelete(NULL);
-	
-}
 
 
 void tcp_server_task(void *arg)
@@ -261,48 +185,6 @@ void gpio_oneshot(void *arg)
 	vTaskDelete(NULL);
 }
 
-
-
-void spiffs_demo_task(void *arg)
-{
-	ESP_LOGI(TAG, "Initializing SPIFFS");
-
-	esp_vfs_spiffs_conf_t conf = {
-	  .base_path = "/spiffs",
-	  .partition_label = NULL,
-	  .max_files = 5,
-	  .format_if_mount_failed = true
-	};
-
-	// Use settings defined above to initialize and mount SPIFFS filesystem.
-	// Note: esp_vfs_spiffs_register is an all-in-one convenience function.
-	esp_err_t ret = esp_vfs_spiffs_register(&conf);
-
-	if (ret != ESP_OK) {
-		if (ret == ESP_FAIL) {
-			ESP_LOGE(TAG, "Failed to mount or format filesystem");
-		} else if (ret == ESP_ERR_NOT_FOUND) {
-			ESP_LOGE(TAG, "Failed to find SPIFFS partition");
-		} else {
-			ESP_LOGE(TAG, "Failed to initialize SPIFFS (%s)", esp_err_to_name(ret));
-		}
-		return;
-	}
-	
-	size_t total = 0, used = 0;
-	ret = esp_spiffs_info(NULL, &total, &used);
-	if (ret != ESP_OK) {
-		ESP_LOGE(TAG, "Failed to get SPIFFS partition information (%s)", esp_err_to_name(ret));
-	} else {
-		ESP_LOGI(TAG, "Partition size: total: %d, used: %d", total, used);
-	}
-	
-
-	esp_vfs_spiffs_unregister(NULL);
-
-	vTaskDelete(NULL);
-}
-
 esp_err_t hello_type_get_handler(httpd_req_t *req)
 {
 	size_t qrylen = httpd_req_get_url_query_len(req);
@@ -312,30 +194,94 @@ esp_err_t hello_type_get_handler(httpd_req_t *req)
 	
 	ESP_LOGI(TAG, "querystr - %d:%s", qrylen, buf);
 
-	if(strcmp(buf, "on") == 0)
-	{
-		gpio_set_level(GPIO_NUM_5, 1);
+	if(strcmp(buf, "img") == 0)
+	{	
+		ESP_LOGI(TAG, "Initializing SPIFFS");
+
+		esp_vfs_spiffs_conf_t conf = {
+		  .base_path = "/spiffs",
+		  .partition_label = NULL,
+		  .max_files = 5,
+		  .format_if_mount_failed = true
+		};
+
+		// Use settings defined above to initialize and mount SPIFFS filesystem.
+		// Note: esp_vfs_spiffs_register is an all-in-one convenience function.
+		esp_err_t ret = esp_vfs_spiffs_register(&conf);
+
+		if (ret != ESP_OK) {
+			if (ret == ESP_FAIL) {
+				ESP_LOGE(TAG, "Failed to mount or format filesystem");
+			} else if (ret == ESP_ERR_NOT_FOUND) {
+				ESP_LOGE(TAG, "Failed to find SPIFFS partition");
+			} else {
+				ESP_LOGE(TAG, "Failed to initialize SPIFFS (%s)", esp_err_to_name(ret));
+			}
+
+			const char * STR = "spiffs failed";
+			httpd_resp_set_type(req, HTTPD_TYPE_TEXT);
+			httpd_resp_send(req, STR, strlen(STR));
+		}
+		else
+		{
+			size_t total = 0, used = 0;
+			ret = esp_spiffs_info(NULL, &total, &used);
+			if (ret != ESP_OK) {
+				ESP_LOGE(TAG, "Failed to get SPIFFS partition information (%s)", esp_err_to_name(ret));
+			} else {
+				ESP_LOGI(TAG, "Partition size: total: %d, used: %d", total, used);
+			}
+			
+			FILE* file = fopen("/spiffs/img.jpg", "rb");
+			
+			if (file == NULL) {
+				ESP_LOGE(TAG, "Failed to open file for reading");
+			}
+			else
+			{
+				fseek(file, 0, SEEK_END);
+				int fsiz = ftell(file);
+				fseek(file, 0, SEEK_SET);
+
+				char *txbuf = malloc(512);
+
+				httpd_resp_set_type(req, HTTPD_TYPE_IMAGE_JPEG);
+				httpd_resp_send_hdr_only(req, fsiz);
+
+				ESP_LOGI(TAG, "sending image %d bytes", fsiz);
+				int rlen = 1;
+				while(rlen)
+				{
+					rlen = fread(txbuf, 1, sizeof(txbuf), file);
+					httpd_resp_send_buf(req, txbuf, rlen);
+				}
+
+				free(txbuf);
+				fclose(file);
+				
+				ESP_LOGI(TAG, "sending image completed");
+			}
+			
+			esp_vfs_spiffs_unregister(NULL);
+
+		}
 	}
-	else if(strcmp(buf, "off") == 0)
+	else if(strcmp(buf, "test") == 0)
 	{
-		gpio_set_level(GPIO_NUM_5, 0);
+		const char *STR = "hello!";
+		httpd_resp_set_type(req, HTTPD_TYPE_TEXT_PLAIN);
+		httpd_resp_send_hdr_only(req, 6);
+		httpd_resp_send_buf(req, STR, strlen(STR));
 	}
-	else if(strcmp(buf, "shot") == 0)
+	else
 	{
-		xTaskCreate(gpio_oneshot, "gpio_oneshot", 1024, NULL, 5, NULL);
-	}
-	else if(strcmp(buf, "spiffs") == 0)
-	{
-		xTaskCreate(spiffs_demo_task, "tcp_client", 2048, NULL, 5, NULL);
+		const char * STR = "Hello World!";
+		httpd_resp_set_type(req, HTTPD_TYPE_TEXT);
+		httpd_resp_send(req, STR, strlen(STR));
 	}
 	
     free (buf);
-	
-#define STR "Hello World!"
-    httpd_resp_set_type(req, HTTPD_TYPE_TEXT);
-    httpd_resp_send(req, STR, strlen(STR));
-    return ESP_OK;
-#undef STR
+	return ESP_OK;
 }
 
 
@@ -400,21 +346,15 @@ void wifi_event_got_ip(httpd_handle_t* server)
 {
 	gpio_set_level(GPIO_NUM_2, 1);
 	
-	xEventGroupClearBits(wifi_connection_groupevt, BIT(0));
-    xTaskCreate(tcp_client_task, "tcp_client", 2048, NULL, 5, NULL);
-	
     if (*server == NULL) {
         ESP_LOGI(TAG, "Starting webserver");
         *server = start_httpd();
     }
-
 }
 
 void wifi_event_disconnected(httpd_handle_t* server)
 {
 	gpio_set_level(GPIO_NUM_2, 0);
-	
-	xEventGroupSetBits(wifi_connection_groupevt, BIT(0));
 	
     if (*server) {
         ESP_LOGI(TAG, "Stopping webserver");
@@ -426,8 +366,6 @@ void wifi_event_disconnected(httpd_handle_t* server)
 void app_main()
 {
 	ESP_LOGI(TAG, "ESP8266 app_main Started");
-	
-	wifi_connection_groupevt = xEventGroupCreate();
 	
 	gpio_set_direction(GPIO_NUM_5, GPIO_MODE_OUTPUT);
 	gpio_set_intr_type(GPIO_NUM_5, GPIO_INTR_DISABLE);
@@ -444,8 +382,6 @@ void app_main()
 	io_conf.pull_down_en = 1;
 	gpio_config(&io_conf);
 	
-	
-
     ESP_ERROR_CHECK(nvs_flash_init());
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
