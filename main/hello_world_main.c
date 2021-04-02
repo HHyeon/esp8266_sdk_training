@@ -253,7 +253,8 @@ esp_err_t hello_type_get_handler(httpd_req_t *req)
 				while(rlen)
 				{
 					rlen = fread(txbuf, 1, sizeof(txbuf), file);
-					httpd_resp_send_buf(req, txbuf, rlen);
+					if(httpd_resp_send_buf(req, txbuf, rlen)!=ESP_OK)
+						break;
 				}
 
 				free(txbuf);
