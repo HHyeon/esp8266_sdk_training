@@ -243,26 +243,29 @@ esp_err_t hello_type_get_handler(httpd_req_t *req)
 				int fsiz = ftell(file);
 				fseek(file, 0, SEEK_SET);
 
-				char *txbuf = malloc(512);
 
+				
+				
+				const int buflen = 128;
+				char *txbuf = malloc(buflen);
 				httpd_resp_set_type(req, HTTPD_TYPE_IMAGE_JPEG);
 				httpd_resp_send_hdr_only(req, fsiz);
-
 				ESP_LOGI(TAG, "sending image %d bytes", fsiz);
 				int rlen = 1;
 				while(rlen)
 				{
-					rlen = fread(txbuf, 1, sizeof(txbuf), file);
+					rlen = fread(txbuf, 1, buflen, file);
 					if(httpd_resp_send_buf(req, txbuf, rlen)!=ESP_OK)
 						break;
 				}
-
 				free(txbuf);
-				fclose(file);
+
+
 				
+				
+				fclose(file);
 				ESP_LOGI(TAG, "sending image completed");
 			}
-			
 			esp_vfs_spiffs_unregister(NULL);
 
 		}
